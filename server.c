@@ -13,7 +13,59 @@
 #include <sys/socket.h>
 #include <pthread.h>
 
-#define PORT  YOUR_CODE 
+#define PORT 8000 
+
+#define EMOJI_NUM 8
+char* raw_str[] = {"smile","cry","happy","sad","like","dizzy","speechless","dull"};
+char* emojis[] = {":-)","qwq","^v^",":-(","*v*","@_@","-_-#","o_o"};
+
+void trans(char* str,char* temp,char* res){
+
+    int len = strlen(str);
+
+    int i = 0;
+    int resIdx = 0;
+    char c;
+    while(i<len && str[i]!='\0'){
+        c = str[i];
+        if(c!='/'){
+            res[resIdx] = c;
+        }else{
+            //待转义字符
+            int j = i + 1;
+            int tempi = 0;
+            while(j < len && str[j]!=' ' && str[j]!='\0'){
+                temp[tempi++] = str[j++];
+            }
+            temp[tempi] = '\0';
+
+            int notchange = 1;
+            for (int k = 0; k < EMOJI_NUM; ++k) {
+                if(strcmp(temp,raw_str[k])==0){
+                    notchange = 0;
+                    char* emoji = emojis[k];
+                    int ei = 0;
+                    while(emoji[ei]!='\0'){
+                        res[resIdx++]=emoji[ei++];
+                    }
+                    i = j-1;
+                    --resIdx;
+                    break;
+                }
+            }
+            if(notchange){
+                res[resIdx] = c;
+            }
+
+
+        }
+        ++resIdx;
+        ++i;
+    }
+    res[resIdx] = '\0';
+
+}
+
 
 int sockfd;
 
@@ -21,25 +73,25 @@ int sockfd;
 int fds[100];
 /* 用来控制进入聊天室的人数为100以内 */
 int size =100;
-char* IP = "YOUR_CODE";
+char* IP = "127.0.0.1";
 
 typedef struct sockaddr SA;
 
 void init(){
-    sockfd = socket(YOUR_CODE, YOUR_CODE, 0);
+    sockfd = socket(PF_INET, SOCK_STREAM, 0);
     if (sockfd == -1){
         perror("创建socket失败");
         exit(-1);
     }
     struct sockaddr_in addr;
-    addr.sin_family = YOUR_CODE;
-    addr.sin_port = YOUR_CODE(PORT);
+    addr.sin_family = PF_INET;
+    addr.sin_port = htons(PORT);
     addr.sin_addr.s_addr = inet_addr(IP);
-    if (YOUR_CODE(sockfd, (SA*)&addr, sizeof(addr)) == -1){
+    if (bind(sockfd, (SA*)&addr, sizeof(addr)) == -1){
         perror("绑定失败");
         exit(-1);
     }
-    if (YOUR_CODE(sockfd, 100) == -1){
+    if (listen(sockfd, 100) == -1){
         perror("设置监听失败");
         exit(-1);
     }
@@ -50,7 +102,7 @@ void SendMsgToAll(char* msg){
     for (i = 0;i < size;i++){
         if (fds[i] != 0){
             printf("sendto%d\n", fds[i]);
-            send(YOUR_CODE, YOUR_CODE, strlen(msg), 0);
+            send(fds[i], msg, strlen(msg), 0);
         }
     }
 }
@@ -71,8 +123,12 @@ void* service_thread(void* p){
                 printf("退出: fd = %dquit\n", fd);
                 pthread_exit((void*)i);
         }
+	/* 转换服务器接受到的信息，如表情转换 */
+	char temp[100]={};
+	char res[200]={};
+	trans(buf,temp,res);
         /* 把服务器接受到的信息发给所有的客户端 */
-        YOUR_CODE(buf);
+        SendMsgToAll(res);
     }
 }
 
@@ -81,7 +137,7 @@ void service(){
     while(1){
         struct sockaddr_in clientaddr;
         socklen_t len = sizeof(clientaddr);
-        int fd = accept(YOUR_CODE, (SA*)&YOUR_CODE, &YOUR_CODE);
+        int fd = accept(sockfd, (SA*)&clientaddr, &len);
         if (fd == -1){
             printf("客户端连接出错...\n");
             continue;
