@@ -1,3 +1,25 @@
-Yuhua Jiang has joined the repository.
-QinRuixin has joined the repository.
-Zhang Tiantian has joined the repository.
+# 基于C语言Socket的聊天室
+
+### 1	表情解析
+
+`"\smile","\cry","\happy","\sad","\like","\dizzy","\speechless","\dull"`
+对应:
+
+`":-)","qwq","^v^",":-(","*v*","@_@","-_-#","o_o"`
+
+
+
+### 2	文件传输
+
+`\sendfile` + `文件名` , 客户端发送文件到聊天室
+
+`\recvfile` + `文件名`， 客户端从聊天室接收文件
+
+**实现尚存在问题，tcp粘包、丢包问题，文件信息容易与聊天信息混合在一起** 
+
+
+
+### 3	私聊
+
+
+
