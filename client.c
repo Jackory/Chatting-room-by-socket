@@ -91,30 +91,62 @@ bool recvfile_or_not(char* src, char* filename)
 }
 
 // 客户端向服务器发送文件
-void sendfile(char* filename)
+void sendfile(char* filename_read)
 {
-	FILE* fp_read = fopen(filename,"rb"); 
-	char buf[4096];
+	// FILE* fp_read = fopen(filename,"rb"); 
+	// char buf[4096];
+    // if(fp_read == NULL)
+    // {
+    //     printf("File:%s not found in current path\n",filename);
+    // }
+    // else
+    // {
+    //     bzero(buf, sizeof(buf)); 
+    //     int file_block_length=0;
+    //     while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp_read))>0)  
+    //     {  
+    //         printf("file_block_length:%d\n", file_block_length);  
+    //         if(send(sockfd, buf, file_block_length, 0) < 0)  
+    //         {
+    //             perror("Send");
+    //             exit(1);
+    //         }  
+    //         bzero(buf, sizeof(buf));
+    //     }  
+    //     fclose(fp_read);  
+    //     printf("Transfer file finished !\n");  
+	// }
+    FILE* fp_read = fopen(filename_read,"rb"); 
+	char buf[4090]; //读写缓冲区
+	char filebuf[4096]; //传输文件缓冲区
     if(fp_read == NULL)
     {
         printf("File:%s not found in current path\n",filename);
     }
     else
     {
-        bzero(buf, sizeof(buf)); 
-        int file_block_length=0;
+        bzero(buf, sizeof(buf));  
+        int file_block_length = 0;
         while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp_read))>0)  
-        {  
+        {
+			strcpy(filebuf, "!#");  //文件传输信息标记前缀"!#"，以区分
+			strcat(filebuf, buf);
             printf("file_block_length:%d\n", file_block_length);  
-            if(send(sockfd, buf, file_block_length, 0) < 0)  
-            {
+            if(send(sockfd, filebuf, sizeof(filebuf),0)<0)  
+            {  
                 perror("Send");
-                exit(1);
-            }  
+                exit(1); 
+            }
             bzero(buf, sizeof(buf));
-        }  
+			bzero(filebuf, sizeof(filebuf));
+        }
+		// 发送endfile，以标志文件传输结束
+		char endfile[4096];
+        strcpy(endfile, "!#endfile");
+		send(sockfd, endfile, sizeof(endfile), 0);
+
         fclose(fp_read);  
-        printf("Transfer file finished !\n");  
+        printf("Transfer file finished !\n");
 	}
 }
 
@@ -147,11 +179,11 @@ void start(){
     pthread_create(&id, 0, recv_thread, 0);
 	
     char buf2[100] = {};
-    sprintf(buf2, "%s进入了聊天室", name);
+    sprintf(buf2, "%s进入了聊天室\n", name);
     send(sockfd, buf2, strlen(buf2), 0);
 	
     while(1){
-        char buf[100] = {};
+        char buf[4000] = {};
 		
 		// 从键盘读入信息，并把换行符删除
         fgets(buf, sizeof(buf), stdin); 
@@ -159,9 +191,9 @@ void start(){
 		if(*buf && buf[ln] == '\n')
 			buf[ln] = '\0';
 		
-        char msg[131] = {};
-        sprintf(msg, "%s: %s", name, buf);
-        send(sockfd, msg, strlen(msg), 0);
+        char msg[4096] = {};
+        sprintf(msg, "%s: %s \n", name, buf);
+        send(sockfd, msg, sizeof(msg), 0);
 		
 		// 文本解析、是否发送文件
 		bzero(filename, sizeof(filename));
