@@ -15,15 +15,21 @@
 #include <sys/stat.h>
 
 #define PORT 8000 
-typedef _Bool bool;
 #define true 1
 #define false 0
 
-int sockfd;
 char* IP = "127.0.0.1";
-typedef struct sockaddr SA;
-char name[30];
+int sockfd;
 
+typedef _Bool bool;
+typedef struct sockaddr SA;
+
+char name[50];
+char filename[50];
+char endfile[4096];
+FILE* fp_recv = NULL;
+
+// 客户端套接字初始化
 void init(){
     sockfd = socket(PF_INET, SOCK_STREAM, 0);
     struct sockaddr_in addr;
@@ -37,15 +43,13 @@ void init(){
     printf("客户端启动成功\n");
 }
 
+// 文本解析，客户端向服务器发送文件
 bool sendfile_or_not(char* src, char* filename)
 {
 	char* token;
-	/* 获取第一个子字符串 */
 	char str[100];
 	strcpy(str, src);
 	token = strtok(str, " ");
-
-	/* 继续获取其他的子字符串 */
 	bool is_sendfile = false;
 	while (token != NULL) {
 		
@@ -63,15 +67,13 @@ bool sendfile_or_not(char* src, char* filename)
 	return false;
 }
 
+// 文本解析，客户端是否从服务器接收文件
 bool recvfile_or_not(char* src, char* filename)
 {
     char* token;
-	/* 获取第一个子字符串 */
 	char str[100];
 	strcpy(str, src);
 	token = strtok(str, " ");
-
-	/* 继续获取其他的子字符串 */
 	bool is_recvfile = false;
 	while (token != NULL) {	
 		if (strcmp(token, "/recvfile") == 0) {
@@ -88,86 +90,35 @@ bool recvfile_or_not(char* src, char* filename)
 	return false;
 }
 
+// 客户端向服务器发送文件
 void sendfile(char* filename)
 {
-    // Get the size of file
-    // struct stat statbuf;
-    // stat(filename, &statbuf);
-    // char filesize[50] = {};
-    // sprintf(filesize, "%ld", statbuf.st_size);
-    // send(sockfd, filesize, sizeof(filesize), 0);
-
-	FILE* fp = fopen(filename,"rb"); 
-	char buf[4096]; //读写缓冲区
-    if(fp == NULL)
+	FILE* fp_read = fopen(filename,"rb"); 
+	char buf[4096];
+    if(fp_read == NULL)
     {
         printf("File:%s not found in current path\n",filename);
     }
     else
     {
-        bzero(buf, sizeof(buf));  //把缓冲区清0
+        bzero(buf, sizeof(buf)); 
         int file_block_length=0;
-        //每次读4096个字节，下一次读取时内部指针自动偏移到上一次读取到位置
-        while((file_block_length=fread(buf, sizeof(char),sizeof(buf),fp))>0)  
+        while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp_read))>0)  
         {  
             printf("file_block_length:%d\n", file_block_length);  
-            //把每次从文件中读出来到128字节到数据发出去
             if(send(sockfd, buf, file_block_length, 0) < 0)  
-            {  
-                perror("Send");  
-                exit(1);  
+            {
+                perror("Send");
+                exit(1);
             }  
-            bzero(buf, sizeof(buf));//发送一次数据之后把缓冲区清零
+            bzero(buf, sizeof(buf));
         }  
-        fclose(fp);  
+        fclose(fp_read);  
         printf("Transfer file finished !\n");  
 	}
 }
 
-void recvfile(char* filename)
-{
-	char buf[4096];
-	FILE* fp = fopen(filename,"wb+");
-	
-    if(fp == NULL)
-    {
-        perror("open");
-        exit(1);
-    }
-    bzero(buf,sizeof(buf)); //缓冲区清0
-
-    int length = 0;
-
-    bool end = false; 
-    while(length = recv(sockfd, buf, sizeof(buf), 0)) //这里是分包接收，每次接收4096个字节
-    {
-        if(length<0)
-        {
-            perror("recv");
-            exit(1);
-        }
-
-        if(length < sizeof(buf)){
-            end = true;
-        }
-
-        //把从buf接收到的字符写入（二进制）文件中
-        int writelen=fwrite(buf,sizeof(char),length,fp);
-        if(writelen<length)
-        {
-            perror("write");
-            exit(1);
-        }
-        if(end == true){
-            end = false;
-            break;
-        }
-        bzero(buf,sizeof(buf)); //每次写完缓冲清0，准备下一次的数据的接收
-    }
-    printf("Receieved file:%s finished!\n", filename);
-    fclose(fp);
-}
-
+// 姓名重复检测
 void check_name()
 {
 	char buf2[100] = {};
@@ -183,7 +134,6 @@ void check_name()
 	       memset(buf2,0,sizeof(buf2));
            recv(sockfd,buf2,sizeof(buf2),0);
 	       printf("%s\n",buf2);
-
     }
 }
 
@@ -191,33 +141,38 @@ void check_name()
 void start(){
 
     check_name();
+	
     pthread_t id;
     void* recv_thread(void*);
     pthread_create(&id, 0, recv_thread, 0);
+	
     char buf2[100] = {};
     sprintf(buf2, "%s进入了聊天室", name);
     send(sockfd, buf2, strlen(buf2), 0);
+	
     while(1){
         char buf[100] = {};
-        fgets(buf, sizeof(buf), stdin);  //Compared to scanf(), fgets() can read space
+		
+		// 从键盘读入信息，并把换行符删除
+        fgets(buf, sizeof(buf), stdin); 
 		size_t ln = strlen(buf) - 1;
-		if(*buf && buf[ln] == '\n') // delete the newline of buf (fgets's defect)
+		if(*buf && buf[ln] == '\n')
 			buf[ln] = '\0';
-
+		
         char msg[131] = {};
         sprintf(msg, "%s: %s", name, buf);
         send(sockfd, msg, strlen(msg), 0);
 		
-		// filename 解析
-		char filename[50];
+		// 文本解析、是否发送文件
 		bzero(filename, sizeof(filename));
 		if(sendfile_or_not(buf, filename) == true){
 			sendfile(filename);
 		}
+		
+	    // 文本解析，是否接收文件
         bzero(filename, sizeof(filename));
-		if(recvfile_or_not(buf, filename) == true){
-			recvfile(filename);
-		}
+		recvfile_or_not(buf, filename); 
+	
 		
         if (strcmp(buf, "bye") == 0){
             memset(buf2, 0, sizeof(buf2));
@@ -230,16 +185,52 @@ void start(){
 }
 
 void* recv_thread(void* p){
-    while(1){
-        char buf[100] = {};
-        if (recv(sockfd, buf, sizeof(buf), 0) <= 0){
+    while(1)
+	{
+		// 接受来自服务端的信息
+        char buf[4096] = {};
+		int length = 0;
+        length = recv(sockfd, buf, sizeof(buf), 0);
+        if (length <= 0){
             return NULL;
         }
-        printf("%s\n", buf);
+        // printf("length = %d\n", length);
+		
+		// 信息是文件信息，处理
+		if(buf[0] == '!' && buf[1] == '#'){
+			char filebuf[4096] = {};
+			strcpy(filebuf, buf+2);
+            if(fp_recv == NULL)
+            {
+                fp_recv = fopen(filename, "wb+");
+                if(fp_recv == NULL){
+                    perror("open");
+                    exit(1);
+                }
+            }
+			if(strcmp(filebuf, "endfile") == 0){
+				printf("Receieved file:%s finished!\n", filename);
+				fclose(fp_recv);
+                fp_recv = NULL;
+			}
+            if(fp_recv != NULL){
+                int write_len = fwrite(filebuf, sizeof(char), strlen(filebuf), fp_recv);
+                if(write_len < strlen(filebuf)){
+                    perror("write");
+                    exit(1);
+			    }   
+            }
+            bzero(filebuf, sizeof(filebuf));
+		}
+		// 信息是聊天信息，处理
+		else if(buf[0] != '!' || buf[1] != '#'){
+			printf("%s\n", buf);
+		}
     }
 }
 
 int main(){
+    strcpy(endfile, "!#endfile");
     init();
     start();
     return 0;

@@ -18,28 +18,36 @@
 #define true 1
 #define false 0
 
+// 定义结构体用户，成员变量为姓名与套接字
 typedef struct {
     char name[30];
     int fd;
 } User ;
+User users[100] = {};
 
+// 类型别名
 typedef _Bool bool;
+typedef struct sockaddr SA;
 
+// 表情包转换
 char* raw_str[] = {"smile","cry","happy","sad","like","dizzy","speechless","dull"};
 char* emojis[] = {":-)","qwq","^v^",":-(","*v*","@_@","-_-#","o_o"};
 
+// 服务器套接字
 int server_fd;
 
-/* 客户端的socketfd, 100个元素, fds[0]~fds[99] */
+// 客户端的socketfd, 100个元素, fds[0]~fds[99]
 int fds[100];
-User users[100] = {};
 
-/* 用来控制进入聊天室的人数为100以内 */
+// 文件传输全局变量，文件名、文件指针
+char filename[30];
+FILE* fp_recv = NULL;
+
+// 用来控制进入聊天室的人数为100以内 
 int size =100;
 char* IP = "127.0.0.1";
 
-typedef struct sockaddr SA;
-
+//表情包转换
 void trans(char* str,char* temp,char* res){
 
     int len = strlen(str);
@@ -86,16 +94,14 @@ void trans(char* str,char* temp,char* res){
     res[resIdx] = '\0';
 }
 
-// 解析文本，是否发送文件
-bool sendfile_or_not(char* src, char* filename)
+// 解析文本，检测客户端是否即将发送文件到服务器
+bool sendfile_or_not(char* src)
 {
 	char* token;
-	/* 获取第一个子字符串 */
 	char str[100];
 	strcpy(str, src);
+    puts(str);
 	token = strtok(str, " ");
-
-	/* 继续获取其他的子字符串 */
 	bool is_sendfile = false;
 	while (token != NULL) {
 		if (strcmp(token, "/sendfile") == 0) {
@@ -104,23 +110,23 @@ bool sendfile_or_not(char* src, char* filename)
 		token = strtok(NULL, " ");
 		if (is_sendfile == true)
 		{
+            puts(token);
+            bzero(filename, sizeof(filename));
 			strcpy(filename, token);
-			printf("filename is:%s\n", filename);
+			printf("to receive filename is: %s\n", filename);
 			return true;
 		}
 	}
 	return false;
 }
 
+// 解析文本，检测客户端是否即将从服务器接收文件
 bool recvfile_or_not(char* src, char* filename)
 {
     char* token;
-	/* 获取第一个子字符串 */
 	char str[100];
 	strcpy(str, src);
 	token = strtok(str, " ");
-
-	/* 继续获取其他的子字符串 */
 	bool is_recvfile = false;
 	while (token != NULL) {
 		if (strcmp(token, "/recvfile") == 0) {
@@ -137,79 +143,44 @@ bool recvfile_or_not(char* src, char* filename)
 	return false;
 }
 
-void sendfile_to_client(char* filename, int fd)
+// 服务器发送文件到客户端
+void sendfile_to_client(char* filename_read, int fd)
 {
-	FILE* fp = fopen(filename,"rb"); 
-	char buf[4096]; //读写缓冲区
-    if(fp == NULL)
+	FILE* fp_read = fopen(filename_read,"rb"); 
+	char buf[4090]; //读写缓冲区
+	char filebuf[4096]; //传输文件缓冲区
+    if(fp_read == NULL)
     {
         printf("File:%s not found in current path\n",filename);
     }
     else
     {
-        bzero(buf, sizeof(buf));  //把缓冲区清0
+        bzero(buf, sizeof(buf));  
         int file_block_length = 0;
-        //每次读4096个字节，下一次读取时内部指针自动偏移到上一次读取到位置
-        while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp))>0)  
-        {  
+        while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp_read))>0)  
+        {
+			strcpy(filebuf, "!#");  //文件传输信息标记前缀"!#"，以区分
+			strcat(filebuf, buf);
             printf("file_block_length:%d\n", file_block_length);  
-            //把每次从文件中读出来到128字节到数据发出去
-            if(send(fd, buf, file_block_length,0)<0)  
+            if(send(fd, filebuf, sizeof(filebuf),0)<0)  
             {  
-                perror("Send");  
-                exit(1);  
-            }  
-            bzero(buf, sizeof(buf));//发送一次数据之后把缓冲区清零
-        }  
-        fclose(fp);  
-        printf("Transfer file finished !\n");  
+                perror("Send");
+                exit(1); 
+            }
+            bzero(buf, sizeof(buf));
+			bzero(filebuf, sizeof(filebuf));
+        }
+		// 发送endfile，以标志文件传输结束
+		char endfile[4096];
+        strcpy(endfile, "!#endfile");
+		send(fd, endfile, sizeof(endfile), 0);
+		
+        fclose(fp_read);  
+        printf("Transfer file finished !\n");
 	}
 }
 
-void recvfile_from_client(char* filename, int client_fd)
-{
-    char buf[4096];
-	FILE* fp=fopen(filename,"wb+");
-	
-    if(fp == NULL)
-    {
-        perror("open");
-        exit(1);
-    }
-    bzero(buf,sizeof(buf)); //缓冲区清0
-
-    int length=0;
-
-    bool end = false; 
-    while(length = recv(client_fd,buf,sizeof(buf),0)) //这里是分包接收，每次接收4096个字节
-    {
-        if(length<0)
-        {
-            perror("recv");
-            exit(1);
-        }
-
-        if(length < sizeof(buf)){
-            end = true;
-        }
-
-        //把从buf接收到的字符写入（二进制）文件中
-        int writelen=fwrite(buf,sizeof(char),length,fp);
-        if(writelen<length)
-        {
-            perror("write");
-            exit(1);
-        }
-        if(end == true){
-            end = false;
-            break;
-        }
-        bzero(buf,sizeof(buf)); //每次写完缓冲清0，准备下一次的数据的接收
-    }
-    printf("Receieved file:%s finished!\n", filename);
-    fclose(fp);
-}
-
+// 服务器套接字初始化
 void init(){
     server_fd = socket(PF_INET, SOCK_STREAM, 0);
     if (server_fd == -1){
@@ -240,9 +211,10 @@ void SendMsgToAll(char* msg, int fd){
     }
 }
 
+// 检测姓名是否重复
 void check_name(int fd)
 {
-    while(1){//姓名重复检测
+    while(1){
         char buf[100] = {};
         int i = 0;
         if (recv(fd,buf,sizeof(buf),0) <= 0){
@@ -263,7 +235,6 @@ void check_name(int fd)
     
             for (i = 0;i < size;i++){
                 if (fds[i] == 0){
-                    //记录客户端的socket
                     fds[i]=fd;
                     sprintf(users[i].name,"%s",buf);
                     break;
@@ -274,17 +245,25 @@ void check_name(int fd)
             send(fd,buf,strlen(buf),0);
             break;
         }
-    }//姓名重复检测
+    }
 }
 
+// 客户端对应服务器线程，接收来自客户端的信息并处理
 void* service_thread(void* p){
+	
     User* user = (User*) p;
     printf("pthread = %d\n", user->fd);
-
+	
+	// 检查姓名是否存在
     check_name(user->fd);
+	
     while(1){
-        char buf[100] = {};
+		
+		// 接收来自客户端信息
+        char buf[4096] = {};
+        bzero(buf, sizeof(buf));
         if (recv(user->fd, buf, sizeof(buf), 0) <= 0){
+            printf("退出: fd = %d quit\n", user->fd);
             int i;
             for (i = 0;i < size;i++){
                 if (user->fd == users[i].fd){
@@ -293,29 +272,62 @@ void* service_thread(void* p){
                     break;
                 }
             }
-                printf("退出: fd = %dquit\n", user->fd);
-                pthread_exit(&i);
+            pthread_exit(&i);
         }
-	    /* 转换服务器接受到的信息，如表情转换 */
-	    char temp[100]={};
-	    char res[200]={};
-	    trans(buf,temp,res);
+        
+		// 接收信息是文件信息，处理
+        if(buf[0] == '!' && buf[1] == '#'){
+            char filebuf[4096] = {};
+            bzero(filebuf, sizeof(filebuf));
+			strcpy(filebuf, buf+2);
+            if(fp_recv == NULL)
+            {
+                puts("file opening");
+                fp_recv = fopen(filename, "wb+");
+                puts("file open succ");
+                if(fp_recv == NULL){
+                    perror("open");
+                    exit(1);
+                }
+            }
+			if(strcmp(filebuf, "endfile") == 0){
+				printf("Receieved file:%s finished!\n", filename);
+				fclose(fp_recv);
+                fp_recv = NULL;
+			}
+            if(fp_recv != NULL){
+                int write_len = fwrite(filebuf, sizeof(char), strlen(filebuf), fp_recv);
+                if(write_len < strlen(filebuf)){
+                    perror("write");
+                    exit(1);
+			    }   
+            }
+        }
 		
-		// 解析文件名
-		char filename[50];
-		bzero(filename, sizeof(filename));
-		if(sendfile_or_not(res, filename) == true){
-			recvfile_from_client(filename, user->fd);
-		}
-        if(recvfile_or_not(res, filename) == true){
-            sendfile_to_client(filename, user->fd);
+		//接收信息是聊天信息，处理
+        else if(buf[0] != '!' || buf[1] != '#'){
+			
+            // 文本解析，客户端是否发送文件
+            sendfile_or_not(buf);
+		
+			// 文本解析，客户端是否接受文件
+            char recvfilename[50];
+            if(recvfile_or_not(buf, recvfilename) == true){
+                sendfile_to_client(recvfilename, user->fd);
+            }
+			
+			//表情信息转换
+            char temp[100]={};
+            char res[200]={};
+            trans(buf,temp,res);
+
+			// 发送聊天信息到所有客户端
+            SendMsgToAll(res, user->fd);
         }
-		// 写文件
-        /* 把服务器接受到的信息发给所有的客户端 */
-        SendMsgToAll(res, user->fd);
     }
 }
 
+// 检测服务器是否连接
 void service(){
     printf("服务器启动\n");
     while(1){
