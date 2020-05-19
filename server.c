@@ -107,9 +107,8 @@ bool sendfile_or_not(char* src)
 		token = strtok_r(NULL, " ", &tmp);
 		if (is_sendfile == true)
 		{
-            puts(token);
 			strcpy(filename, token);
-			printf("to receive filename is: %s\n", filename);
+			//printf("to receive filename is: %s\n", filename);
 			return true;
 		}
 	}
@@ -132,7 +131,7 @@ bool recvfile_or_not(char* src, char* filename)
 		if (is_recvfile == true)
 		{
 			strcpy(filename, token);
-			printf("filename is:%s\n", filename);
+			//printf("filename is:%s\n", filename);
 			return true;
 		}
 	}
@@ -196,7 +195,7 @@ void sendfile_to_client(char* filename_read, int fd)
         {
 			strcpy(filebuf, "!#");  //文件传输信息标记前缀"!#"，以区分
 			strcat(filebuf, buf);
-            printf("file_block_length:%d\n", file_block_length);  
+            //printf("file_block_length:%d\n", file_block_length);  
             if(send(fd, filebuf, sizeof(filebuf),0)<0)  
             {  
                 perror("Send");
@@ -246,7 +245,7 @@ void SendMsgToAll(char* msg, User *from){
     printf("%s", tm_str);
     printf("%s", msg);
     for (i = 0;i < size;i++){
-        if (users[i].fd != 0 && from != &users[i]){
+        if (users[i].fd != 0 /*&& from != &users[i]*/){
             send(users[i].fd, tm_str, strlen(tm_str), 0);
             send(users[i].fd, msg, strlen(msg), 0);
         }
@@ -330,17 +329,18 @@ void* service_thread(void* p){
             char *filebuf = buf + 2, *error_str = "服务器接受文件失败";
             if(fp_recv == NULL)
             {
-                puts("File Opening");
+                //puts("File Opening");
                 fp_recv = fopen(filename, "wb+");
                 if(fp_recv == NULL){
                     send(user->fd, error_str, strlen(error_str), 0);
                     perror("File Open Failed");
                     continue;
                 }
-                puts("File Open Succeed");
+                //puts("File Open Succeed");
             }
 			if(strcmp(filebuf, "endfile") == 0){
 				printf("Receieved file:%s finished!\n", filename);
+
 				fclose(fp_recv);
                 fp_recv = NULL;
                 continue;
@@ -358,16 +358,6 @@ void* service_thread(void* p){
 		
 		//接收信息是聊天信息，处理
         else {
-
-            // 文本解析，客户端是否发送文件
-            sendfile_or_not(buf);
-            
-			// 文本解析，客户端是否接受文件
-            char recvfilename[50];
-            if(recvfile_or_not(buf, recvfilename) == true){
-                sendfile_to_client(recvfilename, user->fd);
-            }
-
             // 文本解析，客户端是否私发消息
             User *prvtwho[10] = {};
             char error_str[100];
@@ -377,14 +367,25 @@ void* service_thread(void* p){
                     send(user->fd, error_str, strlen(error_str), 0);
                 continue;
             }
-            
-			//表情信息转换
+
+            // 文本解析，客户端是否发送文件
+            sendfile_or_not(buf);
+
+            // 文本解析，客户端是否接受文件
+            char recvfilename[50];
+            if(recvfile_or_not(buf, recvfilename) == true){
+                sendfile_to_client(recvfilename, user->fd);
+            }
+
+            //表情信息转换
             char temp[100]={};
             char res[200]={};
             trans(buf,temp,res);
 
 			// 发送聊天信息到所有客户端
             SendMsgToAll(res, user);
+
+
         }
     }
 }

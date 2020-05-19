@@ -13,6 +13,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <termio.h>
 
 #define PORT 8000 
 #define true 1
@@ -43,6 +44,22 @@ void init(){
     printf("客户端启动成功\n");
 }
 
+char getch(void) 
+{
+    struct termios old, current;
+    tcgetattr(0, &old); /* grab old terminal i/o settings */
+    current = old; /* make new settings same as old settings */
+    current.c_lflag &= ~ICANON; /* disable buffered i/o */
+    current.c_lflag &= ~ECHO; /* set echo mode */
+
+    tcsetattr(0, TCSANOW, &current); /* use these new terminal i/o settings now */
+    char ch;
+    ch = getchar();
+    tcsetattr(0, TCSANOW, &old);
+    return ch;
+}
+
+
 // 文本解析，客户端向服务器发送文件
 bool sendfile_or_not(char* src, char* filename)
 {
@@ -60,7 +77,7 @@ bool sendfile_or_not(char* src, char* filename)
 		if (is_sendfile == true)
 		{
 			strcpy(filename, token);
-			printf("filename is:%s\n", filename);
+			//printf("filename is:%s\n", filename);
 			return true;
 		}
 	}
@@ -83,7 +100,7 @@ bool recvfile_or_not(char* src, char* filename)
 		if (is_recvfile == true)
 		{
 			strcpy(filename, token);
-			printf("filename is:%s\n", filename);
+			//printf("filename is:%s\n", filename);
 			return true;
 		}
 	}
@@ -93,29 +110,7 @@ bool recvfile_or_not(char* src, char* filename)
 // 客户端向服务器发送文件
 void sendfile(char* filename_read)
 {
-	// FILE* fp_read = fopen(filename,"rb"); 
-	// char buf[4096];
-    // if(fp_read == NULL)
-    // {
-    //     printf("File:%s not found in current path\n",filename);
-    // }
-    // else
-    // {
-    //     bzero(buf, sizeof(buf)); 
-    //     int file_block_length=0;
-    //     while((file_block_length = fread(buf, sizeof(char), sizeof(buf), fp_read))>0)  
-    //     {  
-    //         printf("file_block_length:%d\n", file_block_length);  
-    //         if(send(sockfd, buf, file_block_length, 0) < 0)  
-    //         {
-    //             perror("Send");
-    //             exit(1);
-    //         }  
-    //         bzero(buf, sizeof(buf));
-    //     }  
-    //     fclose(fp_read);  
-    //     printf("Transfer file finished !\n");  
-	// }
+
     FILE* fp_read = fopen(filename_read,"rb"); 
 	char buf[4090]; //读写缓冲区
 	char filebuf[4096]; //传输文件缓冲区
@@ -131,7 +126,7 @@ void sendfile(char* filename_read)
         {
 			strcpy(filebuf, "!#");  //文件传输信息标记前缀"!#"，以区分
 			strcat(filebuf, buf);
-            printf("file_block_length:%d\n", file_block_length);  
+            //printf("file_block_length:%d\n", file_block_length);  
             if(send(sockfd, filebuf, sizeof(filebuf),0)<0)  
             {  
                 perror("Send");
@@ -144,9 +139,9 @@ void sendfile(char* filename_read)
 		char endfile[4096];
         strcpy(endfile, "!#endfile");
 		send(sockfd, endfile, sizeof(endfile), 0);
+        fclose(fp_read);
 
-        fclose(fp_read);  
-        printf("Transfer file finished !\n");
+        printf("Transfer file:%s finished !\n", filename);
 	}
 }
 
@@ -189,11 +184,20 @@ void start(){
 	
     while(1){
         char buf[4000] = {};
-
-		// 从键盘读入信息，并把换行符删除
+		//从键盘读入信息，换行符前加空格，以便字符串匹配
         fgets(buf, sizeof(buf), stdin);
-        puts("**Input Completed**\n");
-        //buf[strlen(buf)-1] = 0;
+        size_t ln = strlen(buf) - 1;
+		if(*buf && buf[ln] == '\n'){
+			buf[ln] = ' ';
+            buf[ln+1] = '\n';
+            buf[ln+2] = 0;
+        }
+        
+        //光标向上移动两行以覆盖键盘输入，解决消息回显问题
+        printf("\033[1A");
+        printf("\033[1A");
+        
+        //puts("**Input Completed**\n");
 		
         char msg[4096] = {};
         sprintf(msg, "%s: %s", name, buf);
@@ -210,7 +214,7 @@ void start(){
 		recvfile_or_not(buf, filename); 
 	
 		
-        if (strcmp(buf, "bye\n") == 0){
+        if (strcmp(buf, "bye") == 0){
             memset(buf2, 0, sizeof(buf2));
             sprintf(buf2, "%s退出了聊天室\n", name);
             send(sockfd, buf2, strlen(buf2), 0);
