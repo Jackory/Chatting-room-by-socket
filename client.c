@@ -46,17 +46,17 @@ void init(){
 // 文本解析，客户端向服务器发送文件
 bool sendfile_or_not(char* src, char* filename)
 {
-	char* token;
+	char* token, *tmp;
 	char str[100];
 	strcpy(str, src);
-	token = strtok(str, " ");
+	token = strtok_r(str, " ", &tmp);
 	bool is_sendfile = false;
 	while (token != NULL) {
 		
 		if (strcmp(token, "/sendfile") == 0) {
 			is_sendfile = true;
 		}
-		token = strtok(NULL, " ");
+		token = strtok_r(NULL, " ", &tmp);
 		if (is_sendfile == true)
 		{
 			strcpy(filename, token);
@@ -70,16 +70,16 @@ bool sendfile_or_not(char* src, char* filename)
 // 文本解析，客户端是否从服务器接收文件
 bool recvfile_or_not(char* src, char* filename)
 {
-    char* token;
+    char* token, *tmp;
 	char str[100];
 	strcpy(str, src);
-	token = strtok(str, " ");
+	token = strtok_r(str, " ", &tmp);
 	bool is_recvfile = false;
 	while (token != NULL) {	
 		if (strcmp(token, "/recvfile") == 0) {
 			is_recvfile = true;
 		}
-		token = strtok(NULL, " ");
+		token = strtok_r(NULL, " ", &tmp);
 		if (is_recvfile == true)
 		{
 			strcpy(filename, token);
@@ -154,19 +154,24 @@ void sendfile(char* filename_read)
 void check_name()
 {
 	char buf2[100] = {};
-    printf("请输入您的名字：");
-    scanf("%s", name);
-    send(sockfd, name, strlen(name), 0);
-    recv(sockfd, buf2, sizeof(buf2), 0);
-	printf("%s\n", buf2);
-    while(strcmp(buf2,"name is ok")!=0){
-	   printf("\n请输入您的名字：");
-           scanf("%s",name);
-           send(sockfd,name,strlen(name),0);
-	       memset(buf2,0,sizeof(buf2));
-           recv(sockfd,buf2,sizeof(buf2),0);
-	       printf("%s\n",buf2);
+	int length;
+	
+    while(strcmp(buf2,"name is ok") != 0){
+    	if (buf2[0] != 0)
+    		puts(buf2);
+		printf("请输入您的名字：");
+		fgets(name, sizeof(name), stdin);
+		while(name[0] == ' ' || name[0] == '\n'){
+			puts("第一个字不能为空");
+			printf("请输入您的名字：");
+			fgets(name, sizeof(name), stdin);
+		}
+		name[strlen(name)-1] = 0;
+		send(sockfd,name,strlen(name),0);
+		length = recv(sockfd,buf2,sizeof(buf2),0);
+		buf2[length] = 0;
     }
+    printf("%s\n\n",buf2);
 }
 
 
@@ -184,15 +189,14 @@ void start(){
 	
     while(1){
         char buf[4000] = {};
-		
+
 		// 从键盘读入信息，并把换行符删除
-        fgets(buf, sizeof(buf), stdin); 
-		size_t ln = strlen(buf) - 1;
-		if(*buf && buf[ln] == '\n')
-			buf[ln] = '\0';
+        fgets(buf, sizeof(buf), stdin);
+        puts("**Input Completed**\n");
+        //buf[strlen(buf)-1] = 0;
 		
         char msg[4096] = {};
-        sprintf(msg, "%s: %s \n", name, buf);
+        sprintf(msg, "%s: %s", name, buf);
         send(sockfd, msg, sizeof(msg), 0);
 		
 		// 文本解析、是否发送文件
@@ -206,9 +210,9 @@ void start(){
 		recvfile_or_not(buf, filename); 
 	
 		
-        if (strcmp(buf, "bye") == 0){
+        if (strcmp(buf, "bye\n") == 0){
             memset(buf2, 0, sizeof(buf2));
-            sprintf(buf2, "%s退出了聊天室", name);
+            sprintf(buf2, "%s退出了聊天室\n", name);
             send(sockfd, buf2, strlen(buf2), 0);
             break;
         }
@@ -220,12 +224,13 @@ void* recv_thread(void* p){
     while(1)
 	{
 		// 接受来自服务端的信息
-        char buf[4096] = {};
+        char buf[4096];
 		int length = 0;
         length = recv(sockfd, buf, sizeof(buf), 0);
         if (length <= 0){
-            return NULL;
+        	pthread_exit((void *)1);
         }
+        buf[length] = 0;
         // printf("length = %d\n", length);
 		
 		// 信息是文件信息，处理
@@ -236,8 +241,8 @@ void* recv_thread(void* p){
             {
                 fp_recv = fopen(filename, "wb+");
                 if(fp_recv == NULL){
-                    perror("open");
-                    exit(1);
+                    perror("打开文件失败");
+                    continue;
                 }
             }
 			if(strcmp(filebuf, "endfile") == 0){
@@ -248,8 +253,8 @@ void* recv_thread(void* p){
             if(fp_recv != NULL){
                 int write_len = fwrite(filebuf, sizeof(char), strlen(filebuf), fp_recv);
                 if(write_len < strlen(filebuf)){
-                    perror("write");
-                    exit(1);
+                    perror("写入文件失败");
+                    continue;
 			    }   
             }
             bzero(filebuf, sizeof(filebuf));

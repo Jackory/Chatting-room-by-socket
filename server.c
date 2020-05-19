@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <pthread.h>
+#include <time.h>
 
 #define PORT 8000 
 #define EMOJI_NUM 8
@@ -35,9 +36,6 @@ char* emojis[] = {":-)","qwq","^v^",":-(","*v*","@_@","-_-#","o_o"};
 
 // 服务器套接字
 int server_fd;
-
-// 客户端的socketfd, 100个元素, fds[0]~fds[99]
-int fds[100];
 
 // 文件传输全局变量，文件名、文件指针
 char filename[30];
@@ -97,21 +95,19 @@ void trans(char* str,char* temp,char* res){
 // 解析文本，检测客户端是否即将发送文件到服务器
 bool sendfile_or_not(char* src)
 {
-	char* token;
+	char* token, *tmp;
 	char str[100];
 	strcpy(str, src);
-    puts(str);
-	token = strtok(str, " ");
+	token = strtok_r(str, " ", &tmp);
 	bool is_sendfile = false;
 	while (token != NULL) {
 		if (strcmp(token, "/sendfile") == 0) {
 			is_sendfile = true;
 		}
-		token = strtok(NULL, " ");
+		token = strtok_r(NULL, " ", &tmp);
 		if (is_sendfile == true)
 		{
             puts(token);
-            bzero(filename, sizeof(filename));
 			strcpy(filename, token);
 			printf("to receive filename is: %s\n", filename);
 			return true;
@@ -123,16 +119,16 @@ bool sendfile_or_not(char* src)
 // 解析文本，检测客户端是否即将从服务器接收文件
 bool recvfile_or_not(char* src, char* filename)
 {
-    char* token;
+    char* token, *tmp;
 	char str[100];
 	strcpy(str, src);
-	token = strtok(str, " ");
+	token = strtok_r(str, " ", &tmp);
 	bool is_recvfile = false;
 	while (token != NULL) {
 		if (strcmp(token, "/recvfile") == 0) {
 			is_recvfile = true;
 		}
-		token = strtok(NULL, " ");
+		token = strtok_r(NULL, " ", &tmp);
 		if (is_recvfile == true)
 		{
 			strcpy(filename, token);
@@ -141,6 +137,45 @@ bool recvfile_or_not(char* src, char* filename)
 		}
 	}
 	return false;
+}
+
+bool isPrivate(char *src, User **prvtwho, char *error){
+    char *token, *name, *outer, *inner;
+    char str[100];
+    int i, top = 0, error_cnt = 0;
+    strcpy(str, src);
+    strcpy(error, "用户不存在: ");
+    token = strtok_r(str, " ", &outer);
+    while (token != NULL){
+        if (strcmp(token, "/prvtmsg") == 0){
+            break;
+        }
+        token = strtok_r(NULL, " ", &outer);
+    }
+    if (token == NULL)
+        return false;
+
+    token = strtok_r(NULL, " ", &outer);
+    name = strtok_r(token, ",", &inner);
+    while (name != NULL){
+        for (i = 0; i < size; ++i){
+            if (strcmp(name, users[i].name) == 0){
+                prvtwho[top] = &users[i];
+                top++;
+                break;
+            }
+        }
+        if (i == size){
+            if (error_cnt == 0)
+                strcpy(&error[strlen(error)], name);
+            else{
+                sprintf(&error[strlen(error)], ", %s", name);
+            }
+            error_cnt++;
+        }
+        name = strtok_r(NULL, ",", &inner);
+    }
+    return true;
 }
 
 // 服务器发送文件到客户端
@@ -201,48 +236,71 @@ void init(){
     }
 }
 
-void SendMsgToAll(char* msg, int fd){
+void SendMsgToAll(char* msg, User *from){
     int i;
+    time_t cur_time;
+    time(&cur_time);
+    struct tm* loc_tm = localtime(&cur_time);
+    char tm_str[50];
+    sprintf(tm_str, "\n[ %d : %d : %d ]\n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
+    printf("%s", tm_str);
+    printf("%s", msg);
     for (i = 0;i < size;i++){
-        if (fds[i] != 0 && fds[i]!=fd){
-            printf("sendto%d\n", fds[i]);
-            send(fds[i], msg, strlen(msg), 0);
+        if (users[i].fd != 0 && from != &users[i]){
+            send(users[i].fd, tm_str, strlen(tm_str), 0);
+            send(users[i].fd, msg, strlen(msg), 0);
         }
+    }
+    //printf("%s send to All\n\n", from->name);
+}
+
+
+void PrivateSend(char* msg, User * from, User **to){
+    time_t cur_time;
+    time(&cur_time);
+    struct tm* loc_tm = localtime(&cur_time);
+    char tm_str[50];
+    sprintf(tm_str, "\n[ %d : %d : %d ]**private message**\n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
+    User **begin = to;
+    for (; *begin != NULL; ++begin){
+        send((*begin)->fd, tm_str, strlen(tm_str), 0);
+        send((*begin)->fd, msg, strlen(msg), 0);
+    }
+    printf("%s", tm_str);
+    printf("%s", msg);
+    printf("%s send to", from->name);
+    for (begin = to; *begin != NULL; ++begin){
+        printf(", %s", (*begin)->name);
+        printf("\n");
     }
 }
 
+
 // 检测姓名是否重复
-void check_name(int fd)
+void check_name(User *user)
 {
     while(1){
         char buf[100] = {};
-        int i = 0;
-        if (recv(fd,buf,sizeof(buf),0) <= 0){
-                printf("退出：fd = %dquit\n",fd);
-                pthread_exit(&i);
+        int i, length;
+        length = recv(user->fd,buf,sizeof(buf),0);
+        if (length <= 0){
+                printf("退出：fd = %dquit\n", user->fd);
+                pthread_exit((void *)1);
         }
+        buf[length] = 0;
 
         for(i=0;i<size;i++){
             if(strcmp(buf, users[i].name)==0){
-                memset(buf, 0, sizeof(buf));
                 sprintf(buf,"姓名已存在");
-                send(fd, buf, strlen(buf), 0);
+                send(user->fd, buf, strlen(buf), 0);
                 break;
             }
         }
 
         if(i == size){
-    
-            for (i = 0;i < size;i++){
-                if (fds[i] == 0){
-                    fds[i]=fd;
-                    sprintf(users[i].name,"%s",buf);
-                    break;
-                }
-            }
-            memset(buf,0,sizeof(buf));
+            strcpy(user->name, buf);
             sprintf(buf, "name is ok");
-            send(fd,buf,strlen(buf),0);
+            send(user->fd,buf,strlen(buf),0);
             break;
         }
     }
@@ -255,74 +313,78 @@ void* service_thread(void* p){
     printf("pthread = %d\n", user->fd);
 	
 	// 检查姓名是否存在
-    check_name(user->fd);
+    check_name(user);
 	
     while(1){
 		
 		// 接收来自客户端信息
         char buf[4096] = {};
-        bzero(buf, sizeof(buf));
         if (recv(user->fd, buf, sizeof(buf), 0) <= 0){
             printf("退出: fd = %d quit\n", user->fd);
-            int i;
-            for (i = 0;i < size;i++){
-                if (user->fd == users[i].fd){
-                    users[i].fd = 0;
-                    bzero(users[i].name, sizeof(user[i].name));
-                    break;
-                }
-            }
-            pthread_exit(&i);
+            user->fd = 0;
+            memset(user->name, 0, sizeof(user->name));
+            pthread_exit((void *)1);
         }
-        
 		// 接收信息是文件信息，处理
         if(buf[0] == '!' && buf[1] == '#'){
-            char filebuf[4096] = {};
-            bzero(filebuf, sizeof(filebuf));
-			strcpy(filebuf, buf+2);
+            char *filebuf = buf + 2, *error_str = "服务器接受文件失败";
             if(fp_recv == NULL)
             {
-                puts("file opening");
+                puts("File Opening");
                 fp_recv = fopen(filename, "wb+");
-                puts("file open succ");
                 if(fp_recv == NULL){
-                    perror("open");
-                    exit(1);
+                    send(user->fd, error_str, strlen(error_str), 0);
+                    perror("File Open Failed");
+                    continue;
                 }
+                puts("File Open Succeed");
             }
 			if(strcmp(filebuf, "endfile") == 0){
 				printf("Receieved file:%s finished!\n", filename);
 				fclose(fp_recv);
                 fp_recv = NULL;
+                continue;
 			}
             if(fp_recv != NULL){
                 int write_len = fwrite(filebuf, sizeof(char), strlen(filebuf), fp_recv);
                 if(write_len < strlen(filebuf)){
-                    perror("write");
-                    exit(1);
-			    }   
+                    send(user->fd, error_str, strlen(error_str), 0);
+                    perror("Write In Error");
+                    continue;
+			    }
             }
         }
+
 		
 		//接收信息是聊天信息，处理
-        else if(buf[0] != '!' || buf[1] != '#'){
-			
+        else {
+
             // 文本解析，客户端是否发送文件
             sendfile_or_not(buf);
-		
+            
 			// 文本解析，客户端是否接受文件
             char recvfilename[50];
             if(recvfile_or_not(buf, recvfilename) == true){
                 sendfile_to_client(recvfilename, user->fd);
             }
-			
+
+            // 文本解析，客户端是否私发消息
+            User *prvtwho[10] = {};
+            char error_str[100];
+            if (isPrivate(buf, prvtwho, error_str)){
+                PrivateSend(buf, user, prvtwho);
+                if (strcmp(error_str, "用户不存在: ") != 0)
+                    send(user->fd, error_str, strlen(error_str), 0);
+                continue;
+            }
+            
 			//表情信息转换
             char temp[100]={};
             char res[200]={};
             trans(buf,temp,res);
 
 			// 发送聊天信息到所有客户端
-            SendMsgToAll(res, user->fd);
+            SendMsgToAll(res, user);
         }
     }
 }
@@ -343,7 +405,7 @@ void service(){
             if (users[i].fd == 0){
                 /* 记录客户端的socket */
                 users[i].fd = fd;
-                printf("fd = %d\n",users[i].fd);
+                printf("\nfd = %d\n", fd);
                 /* 有客户端连接之后，启动线程给此客户服务 */
                 pthread_t tid;
                 pthread_create(&tid,0, service_thread, &users[i]);
