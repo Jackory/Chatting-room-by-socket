@@ -24,3 +24,14 @@
 
 
 ### 3	私聊
+
+`\prvtmsg NAME1,NAME2,... MSG`
+
+发送消息到NAME1,NAME2,...
+
+当然你也可以把MSG放在前面，只是`\prvtmsg`前面要空格
+
+
+
+另外此次commitment也修正了check_name中的小错误；改正了布局和排版（费了很多事，不过现在看起来工整多了）；废除了fds数组，完全采用User结构体数组
+
