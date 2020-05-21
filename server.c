@@ -176,6 +176,9 @@ bool isPrivate(char *src, User **prvtwho, char *error){
         }
         name = strtok_r(NULL, ",", &inner);
     }
+    i = strlen(error);
+    error[i] = '\n';
+    error[i+1] = '\0';
     return true;
 }
 
@@ -255,25 +258,30 @@ void SendMsgToAll(char* msg, User *from){
     //printf("%s send to All\n\n", from->name);
 }
 
-
 void PrivateSend(char* msg, User * from, User **to){
     time_t cur_time;
     time(&cur_time);
     struct tm* loc_tm = localtime(&cur_time);
-    char tm_str[4096];
+    char tm_str[50];
     sprintf(tm_str, "\n[ %d : %d : %d ]**private message**\n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
     User **begin = to;
     for (; *begin != NULL; ++begin){
-        send((*begin)->fd, tm_str, sizeof(tm_str), 0);
-        send((*begin)->fd, msg, sizeof(msg), 0);
+        if (*begin != from){
+            send((*begin)->fd, tm_str, strlen(tm_str), 0);
+            send((*begin)->fd, msg, strlen(msg), 0);
+        }
     }
+    send(from->fd, tm_str, strlen(tm_str), 0);
+    send(from->fd, msg, strlen(msg), 0);
     printf("%s", tm_str);
     printf("%s", msg);
     printf("%s send to", from->name);
-    for (begin = to; *begin != NULL; ++begin){
+    begin = to;
+    printf(" %s", (*begin)->name);
+    for (++begin; *begin != NULL; ++begin){
         printf(", %s", (*begin)->name);
-        printf("\n");
     }
+    printf("\n");
 }
 
 
@@ -359,15 +367,6 @@ void* service_thread(void* p){
 		
 		//接收信息是聊天信息，处理
         else {
-            // 文本解析，客户端是否私发消息
-            User *prvtwho[10] = {};
-            char error_str[100];
-            if (isPrivate(buf, prvtwho, error_str)){
-                PrivateSend(buf, user, prvtwho);
-                if (strcmp(error_str, "用户不存在: ") != 0)
-                    send(user->fd, error_str, strlen(error_str), 0);
-                continue;
-            }
 
             // 文本解析，客户端是否发送文件
             sendfile_or_not(buf);
@@ -378,11 +377,22 @@ void* service_thread(void* p){
                 sendfile_to_client(recvfilename, user->fd);
             }
 
+            
+
             //表情信息转换
             char temp[100]={};
             char res[200]={};
             trans(buf,temp,res);
             
+            // 文本解析，客户端是否私发消息
+            User *prvtwho[10] = {};
+            char error_str[100];
+            if (isPrivate(buf, prvtwho, error_str)){
+                PrivateSend(res, user, prvtwho);
+                if (strcmp(error_str, "用户不存在: \n") != 0)
+                    send(user->fd, error_str, strlen(error_str), 0);
+                continue;
+            }
 
 			// 发送聊天信息到所有客户端
             SendMsgToAll(res, user);

@@ -198,7 +198,7 @@ void start(){
 	
 		char msg[4096] = {};
         sprintf(msg, "%s: %s", name, buf);
-        send(sockfd, msg, sizeof(msg), 0);
+        send(sockfd, msg, strlen(msg), 0);
 
         if (strcmp(buf, "bye \n") == 0){
             memset(buf2, 0, sizeof(buf2));
