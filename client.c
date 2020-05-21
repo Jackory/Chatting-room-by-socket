@@ -44,20 +44,6 @@ void init(){
     printf("客户端启动成功\n");
 }
 
-char getch(void) 
-{
-    struct termios old, current;
-    tcgetattr(0, &old); /* grab old terminal i/o settings */
-    current = old; /* make new settings same as old settings */
-    current.c_lflag &= ~ICANON; /* disable buffered i/o */
-    current.c_lflag &= ~ECHO; /* set echo mode */
-
-    tcsetattr(0, TCSANOW, &current); /* use these new terminal i/o settings now */
-    char ch;
-    ch = getchar();
-    tcsetattr(0, TCSANOW, &old);
-    return ch;
-}
 
 
 // 文本解析，客户端向服务器发送文件
@@ -77,6 +63,7 @@ bool sendfile_or_not(char* src, char* filename)
 		if (is_sendfile == true)
 		{
 			strcpy(filename, token);
+            is_sendfile = false;
 			//printf("filename is:%s\n", filename);
 			return true;
 		}
@@ -101,6 +88,7 @@ bool recvfile_or_not(char* src, char* filename)
 		{
 			strcpy(filename, token);
 			//printf("filename is:%s\n", filename);
+            is_recvfile = false;
 			return true;
 		}
 	}
@@ -140,8 +128,7 @@ void sendfile(char* filename_read)
         strcpy(endfile, "!#endfile");
 		send(sockfd, endfile, sizeof(endfile), 0);
         fclose(fp_read);
-
-        printf("Transfer file:%s finished !\n", filename);
+        printf("Send file:%s finished !\n", filename);
 	}
 }
 
@@ -178,9 +165,9 @@ void start(){
     void* recv_thread(void*);
     pthread_create(&id, 0, recv_thread, 0);
 	
-    char buf2[100] = {};
+    char buf2[4096] = {};
     sprintf(buf2, "%s进入了聊天室\n", name);
-    send(sockfd, buf2, strlen(buf2), 0);
+    send(sockfd, buf2, sizeof(buf2), 0);
 	
     while(1){
         char buf[4000] = {};
@@ -199,10 +186,6 @@ void start(){
         
         //puts("**Input Completed**\n");
 		
-        char msg[4096] = {};
-        sprintf(msg, "%s: %s", name, buf);
-        send(sockfd, msg, sizeof(msg), 0);
-		
 		// 文本解析、是否发送文件
 		bzero(filename, sizeof(filename));
 		if(sendfile_or_not(buf, filename) == true){
@@ -213,8 +196,11 @@ void start(){
         bzero(filename, sizeof(filename));
 		recvfile_or_not(buf, filename); 
 	
-		
-        if (strcmp(buf, "bye") == 0){
+		char msg[4096] = {};
+        sprintf(msg, "%s: %s", name, buf);
+        send(sockfd, msg, sizeof(msg), 0);
+
+        if (strcmp(buf, "bye \n") == 0){
             memset(buf2, 0, sizeof(buf2));
             sprintf(buf2, "%s退出了聊天室\n", name);
             send(sockfd, buf2, strlen(buf2), 0);

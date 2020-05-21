@@ -108,7 +108,8 @@ bool sendfile_or_not(char* src)
 		if (is_sendfile == true)
 		{
 			strcpy(filename, token);
-			//printf("to receive filename is: %s\n", filename);
+			printf("to receive filename is:%s\n", filename);
+            is_sendfile = false;
 			return true;
 		}
 	}
@@ -131,7 +132,8 @@ bool recvfile_or_not(char* src, char* filename)
 		if (is_recvfile == true)
 		{
 			strcpy(filename, token);
-			//printf("filename is:%s\n", filename);
+			printf("to send filename is:%s\n", filename);
+            is_recvfile = false;
 			return true;
 		}
 	}
@@ -210,7 +212,7 @@ void sendfile_to_client(char* filename_read, int fd)
 		send(fd, endfile, sizeof(endfile), 0);
 		
         fclose(fp_read);  
-        printf("Transfer file finished !\n");
+        printf("Send file:%s finished !\n", filename_read);
 	}
 }
 
@@ -241,7 +243,7 @@ void SendMsgToAll(char* msg, User *from){
     time(&cur_time);
     struct tm* loc_tm = localtime(&cur_time);
     char tm_str[50];
-    sprintf(tm_str, "\n[ %d : %d : %d ]\n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
+    sprintf(tm_str, "\n[ %d : %d : %d ]                  \n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
     printf("%s", tm_str);
     printf("%s", msg);
     for (i = 0;i < size;i++){
@@ -258,12 +260,12 @@ void PrivateSend(char* msg, User * from, User **to){
     time_t cur_time;
     time(&cur_time);
     struct tm* loc_tm = localtime(&cur_time);
-    char tm_str[50];
+    char tm_str[4096];
     sprintf(tm_str, "\n[ %d : %d : %d ]**private message**\n", loc_tm->tm_hour, loc_tm->tm_min, loc_tm->tm_sec);
     User **begin = to;
     for (; *begin != NULL; ++begin){
-        send((*begin)->fd, tm_str, strlen(tm_str), 0);
-        send((*begin)->fd, msg, strlen(msg), 0);
+        send((*begin)->fd, tm_str, sizeof(tm_str), 0);
+        send((*begin)->fd, msg, sizeof(msg), 0);
     }
     printf("%s", tm_str);
     printf("%s", msg);
@@ -340,7 +342,6 @@ void* service_thread(void* p){
             }
 			if(strcmp(filebuf, "endfile") == 0){
 				printf("Receieved file:%s finished!\n", filename);
-
 				fclose(fp_recv);
                 fp_recv = NULL;
                 continue;
@@ -381,6 +382,7 @@ void* service_thread(void* p){
             char temp[100]={};
             char res[200]={};
             trans(buf,temp,res);
+            
 
 			// 发送聊天信息到所有客户端
             SendMsgToAll(res, user);
