@@ -334,7 +334,7 @@ void* service_thread(void* p){
                 //puts("File Opening");
                 fp_recv = fopen(filename, "wb+");
                 if(fp_recv == NULL){
-                    send(user->fd, error_str, strlen(error_str), 0);
+                    //send(user->fd, error_str, strlen(error_str), 0);
                     perror("File Open Failed");
                     continue;
                 }
